@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"time"
@@ -13,6 +12,9 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
+
+	"upload-service/pkg/logger"
+	"upload-service/pkg/middleware"
 )
 
 var (
@@ -28,11 +30,18 @@ type Video struct {
 }
 
 func main() {
+	// Initialize structured logger
+	logger.Initialize()
+
 	// Initialize S3 session
 	sess := session.Must(session.NewSession(&aws.Config{
 		Region: aws.String(os.Getenv("AWS_REGION")),
 	}))
 	s3Uploader = s3manager.NewUploader(sess)
+	logger.Info("S3 uploader initialized", map[string]interface{}{
+		"region": os.Getenv("AWS_REGION"),
+		"bucket": os.Getenv("S3_BUCKET"),
+	})
 
 	// Initialize PostgreSQL
 	var err error
@@ -44,9 +53,22 @@ func main() {
 		os.Getenv("DB_NAME"),
 	))
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal("Failed to connect to database", err, map[string]interface{}{
+			"host": os.Getenv("DB_HOST"),
+			"db":   os.Getenv("DB_NAME"),
+		})
 	}
 	defer db.Close()
+
+	// Check database connection
+	if err = db.Ping(); err != nil {
+		logger.Fatal("Database ping failed", err, nil)
+	}
+
+	logger.Info("Connected to database", map[string]interface{}{
+		"host": os.Getenv("DB_HOST"),
+		"db":   os.Getenv("DB_NAME"),
+	})
 
 	// Create table if not exists
 	_, err = db.Exec(`
@@ -58,11 +80,21 @@ func main() {
         )
     `)
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal("Failed to create videos table", err, nil)
+	}
+	logger.Info("Videos table initialized", nil)
+
+	// Set Gin mode based on environment
+	if os.Getenv("GIN_MODE") != "" {
+		gin.SetMode(os.Getenv("GIN_MODE"))
+	} else {
+		gin.SetMode(gin.DebugMode)
 	}
 
 	// Set up routes with Gin
-	router := gin.Default()
+	router := gin.New()
+	router.Use(middleware.Logger(), gin.Recovery())
+
 	router.POST("/upload", uploadHandler)
 	router.GET("/videos", listVideosHandler)
 	router.GET("/video/:id", getVideoHandler)
@@ -71,70 +103,127 @@ func main() {
 	router.GET("/health", healthCheckHandler)
 	router.GET("/crash", crashHandler)
 
-	log.Println("Server starting on :3000")
-	log.Fatal(router.Run(":3000"))
+	// Start the server
+	port := "8080"
+	logger.Info("Server starting", map[string]interface{}{
+		"port": port,
+	})
+	logger.Fatal("Server shutdown unexpectedly", router.Run(":"+port), nil)
 }
 
 // Health check endpoint for Kubernetes liveness probe
 func healthCheckHandler(c *gin.Context) {
+	log := middleware.GetLogger(c)
+	log.Info().Msg("Health check requested")
+
 	c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 }
 
 // Deliberately crash the application to test Kubernetes auto-healing
 func crashHandler(c *gin.Context) {
-	log.Println("Crash endpoint called - application will terminate in 2 seconds...")
+	log := middleware.GetLogger(c)
+	correlationID := middleware.GetCorrelationID(c)
+
+	log.Warn().Msg("Crash endpoint called - application will terminate in 2 seconds")
 
 	// Send response before crashing
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Application will crash in 2 seconds to simulate failure",
-		"pod":     os.Getenv("HOSTNAME"),
+		"message":        "Application will crash in 2 seconds to simulate failure",
+		"pod":            os.Getenv("HOSTNAME"),
+		"correlation_id": correlationID,
 	})
 
 	// Wait a bit so the HTTP response has time to complete
 	go func() {
 		time.Sleep(2 * time.Second)
-		log.Fatal("Application crash triggered by /crash endpoint")
+		logger.Fatal("Application crash triggered by /crash endpoint", nil, map[string]interface{}{
+			"correlation_id": correlationID,
+		})
 	}()
 }
 
 func uploadHandler(c *gin.Context) {
+	log := middleware.GetLogger(c)
+	correlationID := middleware.GetCorrelationID(c)
+
 	// Get file from form
 	file, header, err := c.Request.FormFile("video")
 	if err != nil {
+		log.Error().Err(err).
+			Str("correlation_id", correlationID).
+			Str("component", "upload_handler").
+			Msg("Failed to get file from form")
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	defer file.Close()
 
+	log.Info().
+		Str("correlation_id", correlationID).
+		Str("component", "upload_handler").
+		Str("filename", header.Filename).
+		Int64("size", header.Size).
+		Msg("Video upload started")
+
 	// Upload to S3
+	s3Key := fmt.Sprintf("%d-%s", time.Now().UnixNano(), header.Filename)
 	result, err := s3Uploader.Upload(&s3manager.UploadInput{
 		Bucket: aws.String(os.Getenv("S3_BUCKET")),
-		Key:    aws.String(fmt.Sprintf("%d-%s", time.Now().UnixNano(), header.Filename)),
+		Key:    aws.String(s3Key),
 		Body:   file,
 	})
 	if err != nil {
+		log.Error().Err(err).
+			Str("correlation_id", correlationID).
+			Str("component", "upload_handler").
+			Str("filename", header.Filename).
+			Msg("S3 upload failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Info().
+		Str("correlation_id", correlationID).
+		Str("component", "upload_handler").
+		Str("filename", header.Filename).
+		Str("s3_key", s3Key).
+		Str("url", result.Location).
+		Msg("Video uploaded to S3")
+
 	// Store metadata
+	timestamp := time.Now().Unix()
 	_, err = db.Exec(
 		"INSERT INTO videos (name, url, timestamp) VALUES ($1, $2, $3)",
 		header.Filename,
 		result.Location,
-		time.Now().Unix(),
+		timestamp,
 	)
 	if err != nil {
+		log.Error().Err(err).
+			Str("correlation_id", correlationID).
+			Str("component", "upload_handler").
+			Str("filename", header.Filename).
+			Msg("Failed to store video metadata")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Info().
+		Str("correlation_id", correlationID).
+		Str("component", "upload_handler").
+		Str("filename", header.Filename).
+		Int64("timestamp", timestamp).
+		Msg("Video metadata stored in database")
 	c.Status(http.StatusCreated)
 }
 
 func listVideosHandler(c *gin.Context) {
+	log := middleware.GetLogger(c)
+	log.Info().Msg("Listing all videos")
+
 	rows, err := db.Query("SELECT id, name, url, timestamp FROM videos")
 	if err != nil {
+		log.Error().Err(err).Msg("Failed to query videos")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -145,17 +234,23 @@ func listVideosHandler(c *gin.Context) {
 		var v Video
 		err := rows.Scan(&v.ID, &v.Name, &v.URL, &v.Timestamp)
 		if err != nil {
+			log.Error().Err(err).Msg("Failed to scan video row")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		videos = append(videos, v)
 	}
 
+	log.Info().Int("count", len(videos)).Msg("Videos retrieved successfully")
 	c.JSON(http.StatusOK, videos)
 }
 
 func getVideoHandler(c *gin.Context) {
+	log := middleware.GetLogger(c)
 	id := c.Param("id")
+
+	log.Info().Str("video_id", id).Msg("Getting video by ID")
+
 	var v Video
 
 	err := db.QueryRow(
@@ -164,9 +259,11 @@ func getVideoHandler(c *gin.Context) {
 	).Scan(&v.ID, &v.Name, &v.URL, &v.Timestamp)
 
 	if err != nil {
+		log.Error().Err(err).Str("video_id", id).Msg("Video not found")
 		c.JSON(http.StatusNotFound, gin.H{"error": "Video not found"})
 		return
 	}
 
+	log.Info().Str("video_id", id).Str("name", v.Name).Msg("Video retrieved successfully")
 	c.JSON(http.StatusOK, v)
 }

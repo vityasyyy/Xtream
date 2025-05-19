@@ -7,3 +7,4 @@ data:
   s3-bucket: "kuliahbucket"
   db-host: "postgres-service"
   db-name: "videodb"
+  log-level: "info"

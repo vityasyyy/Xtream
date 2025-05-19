@@ -20,12 +20,12 @@ spec:
         livenessProbe:
           httpGet:
             path: /health
-            port: 3000
+            port: 8080
           initialDelaySeconds: 10
           periodSeconds: 5
         imagePullPolicy: Never
         ports:
-        - containerPort: 3000
+        - containerPort: 8080
         env:
         - name: AWS_REGION
           value: "ap-southeast-2"
@@ -54,6 +54,22 @@ spec:
             configMapKeyRef:
               name: video-config
               key: db-name
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: access-key-id
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: secret-access-key
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: video-config
+              key: log-level
+              optional: true
         resources:
           requests:
             memory: "256Mi"
