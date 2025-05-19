@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: video-server
+  namespace: video-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: video-server
+  template:
+    metadata:
+      labels:
+        app: video-server
+    spec:
+      containers:
+      - name: video-server
+        image: video-server:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3000
+        env:
+        - name: AWS_REGION
+          value: "ap-southeast-2"
+        - name: S3_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: video-config
+              key: s3-bucket
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: video-config
+              key: db-host
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: user
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: password
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: video-config
+              key: db-name
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

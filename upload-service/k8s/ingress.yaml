@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: video-server-ingress
+  namespace: video-app
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m" # Allow large video uploads
+spec:
+  rules:
+  - host: server.video.localhost
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: video-server
+            port:
+              number: 80

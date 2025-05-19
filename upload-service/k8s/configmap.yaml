@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: video-config
+  namespace: video-app
+data:
+  s3-bucket: "kuliahbucket"
+  db-host: "postgres-service"
+  db-name: "videodb"
