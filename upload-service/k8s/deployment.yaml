@@ -16,6 +16,13 @@ spec:
       containers:
       - name: video-server
         image: video-server:latest
+        # Add this to your container spec in deployment.yaml
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
         imagePullPolicy: Never
         ports:
         - containerPort: 3000

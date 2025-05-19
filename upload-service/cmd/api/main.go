@@ -50,13 +50,13 @@ func main() {
 
 	// Create table if not exists
 	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS videos (
-			id SERIAL PRIMARY KEY,
-			name TEXT,
-			url TEXT,
-			timestamp BIGINT
-		)
-	`)
+        CREATE TABLE IF NOT EXISTS videos (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            url TEXT,
+            timestamp BIGINT
+        )
+    `)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -67,8 +67,34 @@ func main() {
 	router.GET("/videos", listVideosHandler)
 	router.GET("/video/:id", getVideoHandler)
 
+	// Add health and crash endpoints for Kubernetes testing
+	router.GET("/health", healthCheckHandler)
+	router.GET("/crash", crashHandler)
+
 	log.Println("Server starting on :3000")
 	log.Fatal(router.Run(":3000"))
+}
+
+// Health check endpoint for Kubernetes liveness probe
+func healthCheckHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+}
+
+// Deliberately crash the application to test Kubernetes auto-healing
+func crashHandler(c *gin.Context) {
+	log.Println("Crash endpoint called - application will terminate in 2 seconds...")
+
+	// Send response before crashing
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Application will crash in 2 seconds to simulate failure",
+		"pod":     os.Getenv("HOSTNAME"),
+	})
+
+	// Wait a bit so the HTTP response has time to complete
+	go func() {
+		time.Sleep(2 * time.Second)
+		log.Fatal("Application crash triggered by /crash endpoint")
+	}()
 }
 
 func uploadHandler(c *gin.Context) {
