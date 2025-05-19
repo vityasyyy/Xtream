@@ -13,7 +13,8 @@ docker build -t $IMAGE_NAME .
 
 # Apply Kubernetes manifests
 echo "Applying Kubernetes manifests..."
-kubectl apply -f k8s/deployment.yaml
+
+kubectl apply -f k8s/
 kubectl rollout restart deployment video-server -n $NAMESPACE
 
 # Follow the logs

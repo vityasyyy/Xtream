@@ -4,11 +4,14 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
@@ -264,6 +267,34 @@ func getVideoHandler(c *gin.Context) {
 		return
 	}
 
-	log.Info().Str("video_id", id).Str("name", v.Name).Msg("Video retrieved successfully")
+	// Parse the S3 URL to extract the key
+	u, err := url.Parse(v.URL)
+	if err != nil {
+		log.Error().Err(err).Str("video_id", id).Str("url", v.URL).Msg("Failed to parse S3 URL")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate video URL"})
+		return
+	}
+
+	// Extract the key from the path
+	key := strings.TrimPrefix(u.Path, "/")
+
+	// Create a request for S3 GetObject
+	req, _ := s3Uploader.S3.GetObjectRequest(&s3.GetObjectInput{
+		Bucket: aws.String(os.Getenv("S3_BUCKET")),
+		Key:    aws.String(key),
+	})
+
+	// Generate a presigned URL that expires in 1 hour
+	signedURL, err := req.Presign(1 * time.Hour)
+	if err != nil {
+		log.Error().Err(err).Str("video_id", id).Msg("Failed to generate presigned URL")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate video URL"})
+		return
+	}
+
+	// Update the URL in the response with the presigned URL
+	v.URL = signedURL
+
+	log.Info().Str("video_id", id).Str("name", v.Name).Msg("Video retrieved successfully with presigned URL")
 	c.JSON(http.StatusOK, v)
 }
