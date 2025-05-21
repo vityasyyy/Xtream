@@ -55,6 +55,10 @@ func main() {
 		os.Getenv("DB_PASSWORD"),
 		os.Getenv("DB_NAME"),
 	))
+	db.SetMaxOpenConns(90)                 // Maximum number of open connections to the database
+	db.SetMaxIdleConns(10)                 // Maximum number of idle connections in the pool
+	db.SetConnMaxLifetime(time.Minute * 5) // How long a connection can be reused
+
 	if err != nil {
 		logger.Fatal("Failed to connect to database", err, map[string]interface{}{
 			"host": os.Getenv("DB_HOST"),
