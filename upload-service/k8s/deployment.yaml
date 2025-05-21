@@ -72,8 +72,8 @@ spec:
               optional: true
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "250m"
+            memory: "100Mi"
+            cpu: "1m"
           limits:
-            memory: "512Mi"
-            cpu: "500m"
+            memory: "200Mi"
+            cpu: "2m"
