@@ -55,33 +55,35 @@ spec:
         app: promtail
     spec:
       containers:
-        - name: promtail
-          image: grafana/promtail:2.8.0
-          args:
-            - -config.file=/etc/promtail/promtail.yaml
-          volumeMounts:
-            - name: config
-              mountPath: /etc/promtail
-            - name: positions
-              mountPath: /tmp
-            - name: logs
-              mountPath: /var/log
-          resources:
-            requests:
-              cpu:    "100m"
-              memory: "200Mi"
-            limits:
-              cpu:    "200m"
-              memory: "400Mi"
-      volumes:
+      - name: promtail
+        image: grafana/promtail:latest
+        args:
+        - -config.file=/etc/promtail/promtail.yaml
+        volumeMounts:
         - name: config
-          configMap:
-            name: promtail-config
+          mountPath: /etc/promtail
         - name: positions
-          emptyDir: {}
-        - name: logs
-          hostPath:
-            path: /var/log
+          mountPath: /data
+        - name: pods-logs
+          mountPath: /var/log/pods
+          readOnly: true
+        resources:
+          requests:
+            cpu:    "100m"
+            memory: "200Mi"
+          limits:
+            cpu:    "200m"
+            memory: "400Mi"
+      volumes:
+      - name: config
+        configMap:
+          name: promtail-config
+      - name: positions
+        emptyDir: {}
+      - name: pods-logs
+        hostPath:
+          path: /var/log
+          type: Directory
 ---
 apiVersion: apps/v1
 kind: Deployment
