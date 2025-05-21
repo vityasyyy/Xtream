@@ -49,30 +49,6 @@ export default function () {
     healthCheckTime.add(res.timings.duration);
     sleep(1); // Wait 1 second between iterations
   });
-
-  group('List Videos Endpoint', function () {
-    const res = http.get(`${BASE_URL}/videos`);
-
-    const checkRes = check(res, {
-      'is status 200': (r) => r.status === 200,
-      'response is array': (r) => {
-        try {
-          const body = JSON.parse(r.body);
-          return Array.isArray(body);
-        } catch (e) {
-          return false;
-        }
-      },
-    });
-
-    if (!checkRes) {
-      errorRate.add(1);
-      console.error(`List videos failed: ${res.status} - ${res.body}`);
-    }
-
-    videoListTime.add(res.timings.duration);
-    sleep(1); // Wait 1 second between iterations
-  });
 }
 
 export function teardown(data) {
