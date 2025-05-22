@@ -1,10 +1,10 @@
 
 ---
-# xRabbit
+# Xtream
 
 **Scalable Video Streaming Platform**
 
-xRabbit is a scalable video streaming platform developed as part of the KOM (Software Engineering) course. This project is designed to demonstrate scalable service deployment using Kubernetes and Minikube, with stress testing facilitated through k6.
+Xtream is a scalable video streaming platform developed as part of the KOM (Software Engineering) course. This project is designed to demonstrate scalable service deployment using Kubernetes and Minikube, with stress testing facilitated through k6.
 
 ## 👥 Anggota Kelompok
 
