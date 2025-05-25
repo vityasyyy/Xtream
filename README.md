@@ -101,6 +101,13 @@ minikube start --driver=docker
 ```bash
 minikube addons enable ingress
 ```
+### 3.5.1 Make sure you have these in your /etc/hosts
+(your minikube ip) server.video.localhost minio-api.video.localhost minio-console.video.localhost
+
+### 3.5.2 Run dev.sh
+```bash
+cd upload-service && chmod +x dev.sh && ./dev.sh
+```
 
 ### 4\. Route Traffic with Minikube Tunnel
 
@@ -112,7 +119,7 @@ minikube tunnel
 
 **Leave this command running.** It manages access to your services.
 
-### 5\. Deploy the Application
+### 5\. Deploy the Application (Run Twice If Can Not)
 
 ```bash
 kubectl apply -f upload-service/k8s/
@@ -169,7 +176,7 @@ To start the stress test, run the following command from the project's root dire
 ./dev.sh k6
 ```
 
-This script executes the `scripts/stress_test.js` file, which sends requests to the `GET /health` and `POST /videos` endpoints.
+This script executes the `scripts/stress_test.js` file, which sends requests to the `GET /health` and `GETideos` endpoints.
 
 ### Customizing the Test
 
