@@ -1,0 +1,147 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+  namespace: video-app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: video-app
+spec:
+  selector:
+    matchLabels:
+      app: minio
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+      - name: minio
+        image: minio/minio:latest
+        command:
+        - /bin/bash
+        - -c
+        args:
+        - minio server /data --console-address :9001 --address :9000
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: minio-secrets
+              key: access-key
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: minio-secrets
+              key: secret-key
+        ports:
+        - containerPort: 9000
+          name: minio-api
+        - containerPort: 9001
+          name: minio-console
+        volumeMounts:
+        - name: minio-storage
+          mountPath: /data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 15
+      volumes:
+      - name: minio-storage
+        persistentVolumeClaim:
+          claimName: minio-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-service
+  namespace: video-app
+spec:
+  ports:
+  - port: 9000
+    targetPort: 9000
+    name: minio-api
+  - port: 9001
+    targetPort: 9001
+    name: minio-console
+  selector:
+    app: minio
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-secrets
+  namespace: video-app
+type: Opaque
+data:
+  access-key: bWluaW8=  # base64 encoded "minio"
+  secret-key: bWluaW8xMjM=  # base64 encoded "minio123"
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-api-ingress
+  namespace: video-app
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+spec: 
+  rules:
+  - host: minio-api.video.localhost
+    http:
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: minio-service
+              port:
+                number: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-console-ingress
+  namespace: video-app
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+spec: 
+  rules:
+  - host: minio-console.video.localhost
+    http:
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: minio-service
+              port:
+                number: 9001

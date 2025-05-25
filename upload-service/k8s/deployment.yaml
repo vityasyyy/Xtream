@@ -23,17 +23,41 @@ spec:
             port: 8080
           initialDelaySeconds: 10
           periodSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 3
         imagePullPolicy: Never
         ports:
         - containerPort: 8080
         env:
-        - name: AWS_REGION
-          value: "ap-southeast-2"
-        - name: S3_BUCKET
+        - name: MINIO_ENDPOINT
           valueFrom:
             configMapKeyRef:
               name: video-config
-              key: s3-bucket
+              key: minio-endpoint
+        - name: MINIO_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: video-config
+              key: minio-bucket
+        - name: MINIO_USE_SSL
+          valueFrom:
+            configMapKeyRef:
+              name: video-config
+              key: minio-use-ssl
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-secrets
+              key: access-key
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-secrets
+              key: secret-key
         - name: DB_HOST
           valueFrom:
             configMapKeyRef:
@@ -54,16 +78,6 @@ spec:
             configMapKeyRef:
               name: video-config
               key: db-name
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: db-secrets
-              key: access-key-id
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: db-secrets
-              key: secret-access-key
         - name: LOG_LEVEL
           valueFrom:
             configMapKeyRef:

@@ -4,7 +4,9 @@ metadata:
   name: video-config
   namespace: video-app
 data:
-  s3-bucket: "kuliahbucket"
+  minio-endpoint: "minio-api.video.localhost"
+  minio-bucket: "videos"
+  minio-use-ssl: "false"
   db-host: "postgres-service"
   db-name: "videodb"
   log-level: "info"

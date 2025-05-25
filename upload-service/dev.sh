@@ -17,6 +17,8 @@ kubectl apply -f k8s/
 kubectl rollout restart deployment video-server -n $NAMESPACE
 echo "Restarting PostgreSQL deployment..."
 kubectl rollout restart deployment postgres -n $NAMESPACE
+echo "Restarting MinIO deployment..."
+kubectl rollout restart deployment minio -n $NAMESPACE
 
 # Function to run k6 stress tests
 run_k6_tests() {
@@ -43,6 +45,21 @@ run_k6_tests() {
     # return # Uncomment this if you want to stop the script if host is not found
   fi
   
+  if ! grep -q "minio-api.video.localhost" /etc/hosts; then
+    echo "Host 'minio-api.video.localhost' not found in /etc/hosts."
+    echo "Please add the Minikube IP to your /etc/hosts file for minio-api.video.localhost."
+    echo "Example: $(minikube ip) minio-api.video.localhost"
+    echo "Alternatively, run 'minikube tunnel' in a separate terminal and ensure your Ingress is working."
+    # return # Uncomment this if you want to stop the script if host is not found
+  fi
+
+  if ! grep -q "minio-console.video.localhost" /etc/hosts; then
+    echo "Host 'minio-console.video.localhost' not found in /etc/hosts."
+    echo "Please add the Minikube IP to your /etc/hosts file for minio-console.video.localhost."
+    echo "Example: $(minikube ip) minio-console.video.localhost"
+    echo "Alternatively, run 'minikube tunnel' in a separate terminal and ensure your Ingress is working."
+    # return # Uncomment this if you want to stop the script if host is not found
+  fi
   # Run k6 script
   # The k6 script needs a video file to upload.
   

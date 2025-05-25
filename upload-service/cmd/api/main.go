@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -9,20 +10,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	"upload-service/pkg/logger"
 	"upload-service/pkg/middleware"
 )
 
 var (
-	s3Uploader *s3manager.Uploader
-	db         *sql.DB
+	minioClient *minio.Client
+	db          *sql.DB
 )
 
 type Video struct {
@@ -36,18 +35,51 @@ func main() {
 	// Initialize structured logger
 	logger.Initialize()
 
-	// Initialize S3 session
-	sess := session.Must(session.NewSession(&aws.Config{
-		Region: aws.String(os.Getenv("AWS_REGION")),
-	}))
-	s3Uploader = s3manager.NewUploader(sess)
-	logger.Info("S3 uploader initialized", map[string]interface{}{
-		"region": os.Getenv("AWS_REGION"),
-		"bucket": os.Getenv("S3_BUCKET"),
+	// Initialize MinIO client
+	endpoint := os.Getenv("MINIO_ENDPOINT")
+	accessKeyID := os.Getenv("MINIO_ACCESS_KEY")
+	secretAccessKey := os.Getenv("MINIO_SECRET_KEY")
+	useSSL := os.Getenv("MINIO_USE_SSL") == "true"
+
+	var err error
+	minioClient, err = minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Secure: useSSL,
+	})
+	if err != nil {
+		logger.Fatal("Failed to initialize MinIO client", err, map[string]interface{}{
+			"endpoint": endpoint,
+		})
+	}
+
+	// Create bucket if it doesn't exist
+	bucketName := os.Getenv("MINIO_BUCKET")
+	ctx := context.Background()
+	exists, err := minioClient.BucketExists(ctx, bucketName)
+	if err != nil {
+		logger.Fatal("Failed to check if bucket exists", err, map[string]interface{}{
+			"bucket": bucketName,
+		})
+	}
+	if !exists {
+		err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
+		if err != nil {
+			logger.Fatal("Failed to create bucket", err, map[string]interface{}{
+				"bucket": bucketName,
+			})
+		}
+		logger.Info("Bucket created successfully", map[string]interface{}{
+			"bucket": bucketName,
+		})
+	}
+
+	logger.Info("MinIO client initialized", map[string]interface{}{
+		"endpoint": endpoint,
+		"bucket":   bucketName,
+		"ssl":      useSSL,
 	})
 
 	// Initialize PostgreSQL
-	var err error
 	db, err = sql.Open("postgres", fmt.Sprintf(
 		"host=%s user=%s password=%s dbname=%s sslmode=disable",
 		os.Getenv("DB_HOST"),
@@ -172,37 +204,46 @@ func uploadHandler(c *gin.Context) {
 		Int64("size", header.Size).
 		Msg("Video upload started")
 
-	// Upload to S3
-	s3Key := fmt.Sprintf("%d-%s", time.Now().UnixNano(), header.Filename)
-	result, err := s3Uploader.Upload(&s3manager.UploadInput{
-		Bucket: aws.String(os.Getenv("S3_BUCKET")),
-		Key:    aws.String(s3Key),
-		Body:   file,
+	// Upload to MinIO
+	bucketName := os.Getenv("MINIO_BUCKET")
+	objectName := fmt.Sprintf("%d-%s", time.Now().UnixNano(), header.Filename)
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	ctx := context.Background()
+	info, err := minioClient.PutObject(ctx, bucketName, objectName, file, header.Size, minio.PutObjectOptions{
+		ContentType: contentType,
 	})
 	if err != nil {
 		log.Error().Err(err).
 			Str("correlation_id", correlationID).
 			Str("component", "upload_handler").
 			Str("filename", header.Filename).
-			Msg("S3 upload failed")
+			Msg("MinIO upload failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Construct the MinIO URL
+	minioURL := fmt.Sprintf("minio://%s/%s", bucketName, objectName) // Store as reference
 
 	log.Info().
 		Str("correlation_id", correlationID).
 		Str("component", "upload_handler").
 		Str("filename", header.Filename).
-		Str("s3_key", s3Key).
-		Str("url", result.Location).
-		Msg("Video uploaded to S3")
+		Str("object_name", objectName).
+		Str("url", minioURL).
+		Int64("size", info.Size).
+		Msg("Video uploaded to MinIO")
 
 	// Store metadata
 	timestamp := time.Now().Unix()
 	_, err = db.Exec(
 		"INSERT INTO videos (name, url, timestamp) VALUES ($1, $2, $3)",
 		header.Filename,
-		result.Location,
+		minioURL,
 		timestamp,
 	)
 	if err != nil {
@@ -245,6 +286,16 @@ func listVideosHandler(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+
+		// Generate presigned URL for external access
+		if strings.HasPrefix(v.URL, "minio://") {
+			objectName := strings.TrimPrefix(v.URL, fmt.Sprintf("minio://%s/", os.Getenv("MINIO_BUCKET")))
+			presignedURL, err := minioClient.PresignedGetObject(context.Background(), os.Getenv("MINIO_BUCKET"), objectName, time.Hour, nil)
+			if err == nil {
+				v.URL = presignedURL.String()
+			}
+		}
+
 		videos = append(videos, v)
 	}
 
@@ -271,25 +322,26 @@ func getVideoHandler(c *gin.Context) {
 		return
 	}
 
-	// Parse the S3 URL to extract the key
+	// Parse the MinIO URL to extract the object name
 	u, err := url.Parse(v.URL)
 	if err != nil {
-		log.Error().Err(err).Str("video_id", id).Str("url", v.URL).Msg("Failed to parse S3 URL")
+		log.Error().Err(err).Str("video_id", id).Str("url", v.URL).Msg("Failed to parse MinIO URL")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate video URL"})
 		return
 	}
 
-	// Extract the key from the path
-	key := strings.TrimPrefix(u.Path, "/")
-
-	// Create a request for S3 GetObject
-	req, _ := s3Uploader.S3.GetObjectRequest(&s3.GetObjectInput{
-		Bucket: aws.String(os.Getenv("S3_BUCKET")),
-		Key:    aws.String(key),
-	})
+	// Extract the object name from the path (remove bucket name)
+	pathParts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+	if len(pathParts) < 2 {
+		log.Error().Str("video_id", id).Str("url", v.URL).Msg("Invalid MinIO URL format")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid video URL"})
+		return
+	}
+	objectName := strings.Join(pathParts[1:], "/")
 
 	// Generate a presigned URL that expires in 1 hour
-	signedURL, err := req.Presign(1 * time.Hour)
+	ctx := context.Background()
+	presignedURL, err := minioClient.PresignedGetObject(ctx, os.Getenv("MINIO_BUCKET"), objectName, time.Hour, nil)
 	if err != nil {
 		log.Error().Err(err).Str("video_id", id).Msg("Failed to generate presigned URL")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate video URL"})
@@ -297,7 +349,7 @@ func getVideoHandler(c *gin.Context) {
 	}
 
 	// Update the URL in the response with the presigned URL
-	v.URL = signedURL
+	v.URL = presignedURL.String()
 
 	log.Info().Str("video_id", id).Str("name", v.Name).Msg("Video retrieved successfully with presigned URL")
 	c.JSON(http.StatusOK, v)
