@@ -6,7 +6,7 @@ Xtream is a scalable video streaming platform developed for the KOM (Software En
 
   * **Andrian Danar Perdana** (23/513040/PA/21917)
   * **Andreandhiki Riyanta Putra** (23/517511/PA/22191)
-  * **Muhammad Argya Vityasy** (23/522547/PA/22475) – Kubernetes
+  * **Muhammad Argya Vityasy** (23/522547/PA/22475)
   * **Nasya Putri Raudhah Dahlan** (23/513931/PA/21967)
 
 -----
