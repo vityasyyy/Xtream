@@ -181,7 +181,7 @@ This script executes the `scripts/stress_test.js` file, which sends requests to 
 ### Customizing the Test
 
 You can easily modify the test parameters by editing the `scripts/stress_test.js` file. Adjust the `options` to change the number of virtual users (VUs), test duration, and more.
-
+we can handle -+ 1000 VUs (bottlenecked because of minikube tunnel)
 ```javascript
 export let options = {
   vus: 50,
