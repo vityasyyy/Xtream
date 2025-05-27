@@ -72,11 +72,26 @@ To improve user experience and system resilience, the video upload and transcodi
   * **Planned Flow**: The API will receive the video and publish a "new video" message to a Kafka topic. A separate transcoding service will consume this message, process the video, and update its status independently.
   * **Benefit**: This makes the upload API faster and more reliable. Even if the transcoding service is slow or fails, it won't affect new video uploads.
 
-### Self-Hosted Storage with MinIO
+### Infrastructure as Code with Terraform
+To automate the setup of our cloud infrastructure, we plan to use Terraform. This will allow us to define and manage our cloud resources (like Kubernetes clusters, databases, and object storage) in a declarative way.
 
-To avoid dependency on third-party cloud services like AWS S3, **MinIO** will be implemented for object storage.
+#### Goal: Create reproducible environments for development, staging, and production.
+#### Benefit: This simplifies the process of setting up new environments and ensures consistency, reducing the risk of manual configuration errors.
 
-  * **Benefit**: MinIO is an S3-compatible, high-performance object storage server that can be hosted within our Kubernetes cluster. This makes the entire platform more self-contained, reduces external dependencies, and gives us full control over our storage infrastructure.
+### Simplified Deployments with Helm
+
+To streamline the deployment of our applications to Kubernetes, we will adopt Helm. Helm charts will be created for each service, packaging all the necessary Kubernetes manifests into a single, configurable package.
+
+#### Goal: Simplify application deployment, versioning, and dependency management within Kubernetes.
+#### Benefit: Deploying, upgrading, and rolling back applications will become much easier and more reliable.
+
+### Complete Backend Functionality
+Future development will focus on building out the core application logic to create a fully functional video platform.
+
+User Accounts: Implementing user registration, authentication, and profile management.
+Video Management: Adding features to edit, delete, and manage video metadata.
+Playlist and Channel Support: Allowing users to organize videos into playlists and create their own channels.
+Search and Discovery: Building a robust search functionality to help users find content.
 
 -----
 
@@ -176,7 +191,7 @@ To start the stress test, run the following command from the project's root dire
 ./dev.sh k6
 ```
 
-This script executes the `scripts/stress_test.js` file, which sends requests to the `GET /health` and `GETideos` endpoints.
+This script executes the `scripts/stress_test.js` file, which sends requests to the `GET /health` and `GET /videos` endpoints.
 
 ### Customizing the Test
 
